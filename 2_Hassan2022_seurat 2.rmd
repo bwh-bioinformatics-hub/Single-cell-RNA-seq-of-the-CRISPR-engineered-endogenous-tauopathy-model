@@ -1,0 +1,502 @@
+---
+title: "scRNA-seq data analysis of dissected fly brain, Hassan project, 2022"
+author: "Tingting"
+date: "02/05/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r, include=FALSE}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(ggplot2)
+library(stringr)
+library(SoupX)
+library(reticulate)
+library(glmpca)
+library(SeuratWrappers)
+library(scry)
+library(reticulate)
+library(monocle3)
+```
+
+# Step 1: Preparation
+```{r}
+pwd="/Volumes/BIOINFORMATICS/projects/hassan2022/scr/"
+indir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/02_cellranger_count/"
+outdir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/03_seurat/"
+scrubletdir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/03_scrublet/"
+seuratdir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/04_seurat/"
+projectName="hassan2022"
+#srublet.score="/Volumes/bioinformatics/projects/hassan2021/output/05_Scrublet/srublet.score"
+#srublet.logic="/Volumes/bioinformatics/projects/hassan2021/output/05_Scrublet/srublet.logic"
+```
+
+Set working dir
+```{r}
+setwd(pwd)
+```
+
+If using Leiden algorithm in FindMarkers
+```{r message=FALSE, warning = FALSE}
+use_condaenv("r_leiden", required=TRUE)
+py_config()
+```
+
+Create a vector of sample names
+```{r message=FALSE, warning = FALSE}
+#samples = c("CRN00224913", "CRN00224914", "CRN00224915", "CRN00224916", "CRN00224917", "CRN00224918", "CRN00224919", "CRN00224920")
+samples = c("CRN00224913", "CRN00224914", "CRN00224915")
+```
+
+# Step 2: Ambient RNA removal
+Remove ambient RNA by SoupX
+```{r message = FALSE, warning = FALSE}
+data.10x = list()
+i = 1
+  for (sample in samples) {
+    data.10x[[i]] = load10X(paste0(indir, sample, "/outs/"))
+    data.10x[[i]] <- autoEstCont(data.10x[[i]])
+    print(i)
+    print(sample)
+    data.10x[[i]] <- adjustCounts(data.10x[[i]])
+    i=i+1
+  }
+```
+
+# Step 3: Create Seurat object after SoupX
+```{r message = FALSE, warning = FALSE}
+scrna.list = list()
+for (j in 1:length(data.10x)) {
+    scrna.list[[samples[j]]] = CreateSeuratObject(counts = data.10x[[j]], min.cells=3, project=samples[j])
+    scrna.list[[samples[j]]][["DataSet"]] = samples[j]
+}
+```
+
+Remove raw data to save memory
+```{r}
+rm(data.10x);
+```
+
+# Step 4: Add percent.mt and percent.rb
+Add percent.mt and percent.rb to cell level metadata
+```{r}
+for (i in 1:length(samples)) {
+  scrna.list[[samples[i]]][["percent.mt"]] <- PercentageFeatureSet(scrna.list[[samples[i]]], pattern = "^mt:") 
+  scrna.list[[samples[i]]][["percent.rb"]] <- PercentageFeatureSet(scrna.list[[samples[i]]], pattern = "^Rp[LS]")
+}
+```
+
+# Step 5: Merge Seurat objects into an object
+```{r eval = FALSE}
+scrna <- scrna.list[[1]]
+y.list=c()
+for(k in 2:length(samples)){
+  y.list=c(y.list, scrna.list[[k]])
+}
+scrna <- merge(scrna, y=y.list, add.cell.ids = samples, project=projectName)
+#rm(scrna.list);
+rm(y.list)
+str(scrna@meta.data); 
+saveRDS(scrna, file = sprintf("%s/MergedSeuratObjectHassan.rds", outdir))
+```
+
+# Step 6: Feature plot before QC
+```{r}
+# feature plot
+for (sample in samples){
+  VlnPlot(scrna.list[[sample]], 
+          features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"),
+          ncol = 4,
+          pt.size = 0.1) & theme(plot.title = element_text(size=10))
+  ggsave(paste0(seuratdir, sample, ".feature.plot.png"), width = 8, height = 6)
+}
+
+# nCount_RNA vs. percent.mt
+for (sample in samples){
+  FeatureScatter(scrna.list[[sample]], feature1 = "nCount_RNA", feature2 = "percent.mt")
+  ggsave(paste0(seuratdir, sample, ".nCount.vs.percent.mt.png"), width = 8, height = 6)
+}
+
+# nCount_RNA vs. nFeature_RNA
+for (sample in samples){
+  FeatureScatter(scrna.list[[sample]], feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+  ggsave(paste0(seuratdir, sample, ".nFeature.vs.nCount.png"), width = 8, height = 6)
+}
+```
+
+# Step 7: Run doublet detection scripts
+Run scrublet scripts. The scrublet script is a python script, this python script is put inside of a bash script. The following command is used to run bash script in R. 
+```{r}
+system2(command = "bash",
+        args = c("run_scrublet_multi.sh"))
+```
+
+# Step 8: Read in doublet scores
+Read in doublet result from Scrublet analysis done in Pyhon
+```{r}
+doublet.list = list()
+for (sample in samples){
+  doublet_scores <- scan(paste0(scrubletdir, sample, "_srublet.score"))
+  predicted_doublets <- scan(paste0(scrubletdir, sample, "_srublet.logic"))   
+  ds <- as.data.frame(cbind(doublet_scores, predicted_doublets))
+  ds$predicted_doublets <- as.logical(ds$predicted_doublets)
+  rownames(ds) <- rownames(scrna.list[[sample]]@meta.data) 
+  scrna.list[[sample]] <- AddMetaData(scrna.list[[sample]], ds)
+  scrna.list[[sample]] <- subset(scrna.list[[sample]], subset=predicted_doublets == FALSE)
+}
+```
+
+# Step 9: QC, filter cells with nCount, nFeature, percent.mito
+Filtered cells with 3SD of mean nCount and nFeature, percent of mito
+```{r}
+qc_cutoff = 3
+mito_cutoff = 10
+for (sample in samples){
+  mean.nCount <- mean(scrna.list[[sample]]@meta.data$nCount_RNA)
+  sd.nCount <- sd(scrna.list[[sample]]@meta.data$nCount_RNA)
+  mean.nFeature <- mean(scrna.list[[sample]]@meta.data$nFeature_RNA)
+  sd.nFeature <- sd(scrna.list[[sample]]@meta.data$nFeature_RNA)
+  scrna.list[[sample]] <- subset(scrna.list[[sample]], subset = nCount_RNA > mean.nCount - qc_cutoff*sd.nCount & nCount_RNA < mean.nCount + qc_cutoff*sd.nCount & nFeature_RNA > mean.nFeature - qc_cutoff*sd.nFeature & nFeature_RNA < mean.nFeature + qc_cutoff*sd.nFeature & percent.mt < mito_cutoff)
+}
+```
+
+# Step 10: Feature plot after QC
+```{r}
+# feature plot
+for (sample in samples){
+  VlnPlot(scrna.list[[sample]], 
+          features = c("nFeature_RNA", "nCount_RNA", "percent.mt", "percent.rb"),
+          ncol = 4,
+          pt.size = 0.1) & theme(plot.title = element_text(size=10))
+  ggsave(paste0(seuratdir, sample, ".feature.plot.QC.png"), width = 8, height = 6)
+}
+
+# nCount_RNA vs. percent.mt
+for (sample in samples){
+  FeatureScatter(scrna.list[[sample]], feature1 = "nCount_RNA", feature2 = "percent.mt")
+  ggsave(paste0(seuratdir, sample, ".nCount.vs.percent.mt.QC.png"), width = 8, height = 6)
+}
+
+# nCount_RNA vs. nFeature_RNA
+for (sample in samples){
+  FeatureScatter(scrna.list[[sample]], feature1 = "nCount_RNA", feature2 = "nFeature_RNA")
+  ggsave(paste0(seuratdir, sample, ".nFeature.vs.nCount.QC.png"), width = 8, height = 6)
+}
+```
+
+
+# Normalization
+Normalize for sampling variation
+```{r}
+df <- NormalizeData(df, normalization.method = "LogNormalize", scale.factor = 10000)
+```
+
+# Find variable features
+```{r}
+df <- FindVariableFeatures(df, selection.method = "vst", nfeatures = 2000)
+```
+
+# Data scaling
+```{r}
+all.genes <- rownames(df)
+df <- ScaleData(df, features = all.genes, verbose = FALSE)
+```
+
+# Determine the ‘dimensionality’ of the dataset
+```{r}
+df <- RunPCA(df, verbos = FALSE)
+ElbowPlot(df)
+ggsave(paste0(outdir, "control1.elbow.plot.png"), width = 8, height = 6)
+```
+
+Save a copy of seurat object for GLMPCA and Leiden exploration
+```{r}
+df_default <- df
+```
+
+Run PCA with elbow plot determined PCs
+Find neighbors
+Find clusters
+Run UMAP
+
+## Cell clustering using default settings: PCA, Louvain
+```{r message = FALSE, warning = FALSE}
+df <- RunPCA(df, npcs = 10, verbose = FALSE) 
+df <- FindNeighbors(df, reduction = "pca", dims = 1:10) # picked 10
+df <- FindClusters(df, resolution = 0.5)
+df <- RunUMAP(df, reduction = "pca", dims = 1:10) 
+plot1 <- DimPlot(df, reduction = "umap", label = TRUE, pt.size = 1)
+plot1
+pdf(paste0(outdir, "control1.cluster.umap.pdf"))
+plot1 + coord_fixed()
+dev.off()
+```
+
+## Cell clustering using GLMPCA
+```{r message = FALSE, warning = FALSE}
+df_glmpca <- RunGLMPCA(df_default, L = 10)
+df_glmpca <- FindNeighbors(df_glmpca, reduction = "glmpca", dims = 1:10)
+df_glmpca <- FindClusters(df_glmpca, resolution = 0.5)
+df_glmpca <- RunUMAP(df_glmpca, reduction = "glmpca", dims = 1:10)
+plot1 <- DimPlot(df, reduction = "umap", label = TRUE, pt.size = 1)
+plot1
+pdf(paste0(outdir, "control1.cluster.umap.glmpca.pdf"))
+plot1 + coord_fixed()
+dev.off()
+```
+
+## Cell clustering using Leiden
+```{r message = FALSE, warning = FALSE}
+df_leiden <- RunPCA(df_default, npcs = 10, verbose = FALSE) 
+df_leiden <- FindNeighbors(df_leiden, reduction = "pca", dims = 1:10) # picked 10
+df_leiden <- FindClusters(df_leiden, resolution = 0.5, algorithm = 4)
+df_leiden <- RunUMAP(df_leiden, reduction = "pca", dims = 1:10)
+plot1 <- DimPlot(df_leiden, reduction = "umap", label = TRUE, pt.size = 1)
+plot1
+pdf(paste0(outdir, "control1.cluster.umap.leiden.pdf"))
+plot1 + coord_fixed()
+dev.off()
+```
+
+
+# Save the data
+```{r}
+saveRDS(df, paste0(outdir, "control1.seurat.rds"))
+df <- readRDS(paste0(outdir, "control1.seurat.rds"))
+```
+
+
+# Finding differentially expressed features
+```{r message = FALSE}
+df.markers <- FindAllMarkers(df, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+write.table(df.markers, paste0(outdir, "control1.FindAllMarkers.clusters.xls"), sep = "\t", col.names = NA)
+df.markers %>% group_by(cluster) %>% top_n(n = 3, wt = avg_log2FC) 
+```
+
+# Heatmap of top10 marker genes
+```{r}
+topN <- df.markers %>% group_by(cluster) %>% top_n(n = 10  , wt = avg_log2FC)
+DoHeatmap(df, features = topN$gene, size = 2, draw.lines = T, angle = 45, hjust = 0.2) + theme(axis.text.y = element_text(size = 5)) + NoLegend()
+ggsave(paste0(outdir, "control1.top10markergenes.heatmap.pdf"), width = 8, height = 6)
+```
+
+# Feature plot, a few as an example
+```{r}
+FeaturePlot(df, features =c("VAChT", "VGlut"), coord.fixed=5)
+FeaturePlot(df, features =c("repo", "gcm"), coord.fixed=5)
+```
+
+# Feature plot one by one
+```{r echo = T, results = 'hide'}
+# marker genes from paper main text
+known_marker_genes = list(
+  cholinergic=c("VAChT"),
+  glutamatergic=c("VGlut"),
+  GABAergic_neurons=c("Gad1"),
+  serotonergic=c("SerT"),
+  octopaminergic_tyraminergic=c("Tdc2"),
+  dopaminergic=c("ple"),
+  photoreceptors=c("ninaC", "trp", "trpl"),
+  hemocytes=c("Hml"),
+  astrocytes=c("alrm"),
+  cortex_glia=c("wrapper"),
+  surface_glia=c("Indy"),
+  perineurial=c("Vmat"),
+  subperineurial_glia=c("moody"),
+  Kenyon_cells=c("ey", "prt"),
+  ab_lobe=c("sNPF"),
+  ab_prime_lobe=c("trio"),
+  gamma_lobe=c("sNPF", "trio"),
+  Mi1_neurons =c("hth", "bsh"),
+  T1_neurons =c("Eaat1"),
+  GABAergic_Pm1_Pm2_Pm3 =c("Lim3", "svp", "Vsx1"),
+  Lawf1_neurons =c("eya", "hth"),
+  Lawf2_neurons =c("eya", "hth", "Lim1"),
+  dorsal_cluster_neurons  =c("ato", "acj6"),
+  fructose_sensing_neurons  =c("Crz")
+)
+
+plots = FeaturePlot(df, ncol =4, by.col =F, combine = F, reduction='umap', features = unlist(known_marker_genes, use.names = F))
+pdf(paste0(outdir, "control1.markergenes.paperMain.seperate.pdf"))
+sapply(plots, print)
+dev.off()
+
+# marker genes from figure 1A-E
+known_marker_genes = list(
+  serotonergic=c("SerT"),
+  octopaminergic_tyraminergic_neurons=c("Tdc2"),
+  dopaminergic_neurons=c("ple"),
+  mushroom_body=c("ey"),
+  Kenyon_cells=c("prt"),
+  astrocyte_like_glia=c("alrm"),
+  cortex_glia=c("wrapper"),
+  hemocytes=c("Hml"),
+  OPN_adPN_lPN=c("otp", "hth", "Oaz", "acj6", "C15", "tnc", "kn"),
+  Poxn=c("CG14687", "Poxn", "Dh31", "Gad1", "trio", "grn", "HLH3B", "Dr", "Sox21b"),
+  DN1=c("CNMa", "cry", "Dh31", "Clk", "CR45566", "Pdfr", "gl"),
+  Clock=c("Pdf", "CG17777", "CG18599", "tim", "vri", "Clk", "cry", "Dh44", "Nplp1"),
+  Dm8_Tm5c=c("CG2016", "CG33777", "CG5910", "otk2", "CR43856", "Sulf1", "ort"),
+  T1=c("Eaat1", "CG14274", "hbn", "Crz", "GILT1", "orb", "ome", "Awh"),
+  Tm1_TmY8=c("Pka-C3", "CG2016", "Tk", "CG14340", "CG42458", "Drgx"),
+  T4_T5=c("CG14340", "CNMaR", "acj6", "Drgx", "Lim1", "SiaT", "Scp2"),
+  Pm1_Pm2=c("Hmx", "svp", "hth", "Lim3"),
+  Pm3=c("AstA", "CG10257", "Vsx2", "Vsx1", "Lim3"),
+  C2_C3=c("CG14989", "Gad1", "Ets65A", "hbn", "CG13698", "Dll"),
+  Mi1=c("sosie", "Pka-C3", "Mmp2", "Tk", "bsh", "CG2016")
+)
+
+plots = FeaturePlot(df, ncol =4, by.col =F, combine = F, reduction='umap', features = unlist(known_marker_genes, use.names = F))
+pdf(paste0(outdir, "control1.markergenes.figure1AtoE.seperate.pdf"))
+sapply(plots, print)
+dev.off()
+```
+
+
+# Assign cell types, not used for trajectory
+```{r}
+df_anno <- df
+
+df_anno <- RenameIdents(df_anno, `0` = "Cholinergic neurons", `1` = "Neurons", `2` = "Glutamatergic neurons",  `3` = "Neurons", `4` = "Glutamatergic neurons", `5` = "Tm1/TmY8", `6` = "T4/T5", `7` = "Kenyon cells", `8` = "Unknown", `9` = "Mi1", `10` = "Gamma lobe", `11` = "Glia", `12` = "C2/C3", `13` ="T1")
+```
+
+# Cell type annotation plot
+```{r message = FALSE, warning = FALSE}
+plot1 <- DimPlot(df_anno, reduction = "umap", label = TRUE, pt.size = 0.5)
+plot1
+pdf(paste0(outdir, "control1.cluster.umap.annotated.pdf"))
+plot1 + coord_fixed()
+dev.off()
+
+plot2 <- DimPlot(df_anno, reduction = "umap", label = TRUE, pt.size = 0.5) + NoLegend()
+pdf(paste0(outdir, "control1.cluster.umap.annotatedNoLegend.pdf"))
+plot2 + coord_fixed()
+dev.off()
+
+plot3 <- DimPlot(df_anno, reduction = "umap", repel = TRUE, pt.size = 0.5)
+pdf(paste0(outdir, "control1.cluster.umap.annotatedOnlyLegend.pdf"))
+plot3 + coord_fixed()
+dev.off()
+
+# plot3 <- DimPlot(df_anno, reduction = "umap",  repel = TRUE, pt.size = 0.5)
+# ggsave(paste0(outdir, "control1.cluster.umap.annotatedOnlyLegend.pdf"), height = 7, width = 10)
+# plot3 + coord_fixed()
+# dev.off()
+```
+
+
+# Sub-clustering
+```{r message = FALSE, warning = FALSE}
+df_sub <- subset(df, idents = c(0, 1, 2, 3, 4, 5, 9, 12))
+df_sub <- FindVariableFeatures(df_sub, selection.method = "vst", nfeatures = 2000)
+all.genes <- rownames(df_sub)
+df_sub <- ScaleData(df_sub, features = all.genes, verbose = FALSE)
+df_sub <- RunPCA(df_sub, verbos = FALSE)
+ElbowPlot(df_sub)
+df_sub <- RunPCA(df_sub, npcs = 12, verbose = FALSE) # check
+df_sub <- FindNeighbors(df_sub, reduction = "pca", dims = 1:12) # check
+df_sub <- FindClusters(df_sub, resolution = 0.5)
+df_sub <- RunUMAP(df_sub, reduction = "pca", dims = 1:12) # check
+
+plot1 <- DimPlot(df_sub, reduction = "umap", label = TRUE, pt.size = 1)
+plot1
+pdf(paste0(outdir, "control1.umap.recluster.pdf"))
+plot1 + coord_fixed()
+dev.off()
+
+plot2 <- DimPlot(df_sub, reduction = "umap", label = TRUE, pt.size = 1) + NoLegend()
+pdf(paste0(outdir, "control1.umap.annotatedNoLegend.recluster.pdf"))
+plot2 + coord_fixed()
+dev.off()
+
+plot3 <- DimPlot(df_sub, reduction = "umap", repel = TRUE, pt.size = 1)
+pdf(paste0(outdir, "control1.umap.annotatedOnlyLegend.recluster.pdf"))
+plot3 + coord_fixed()
+dev.off()
+
+# plot3 <- DimPlot(df_sub, reduction = "umap",  repel = TRUE, pt.size = 1)
+# ggsave(paste0(outdir, "control1.umap.annotatedOnlyLegend.recluster.pdf"), height = 7, width = 10)
+# plot3 + coord_fixed()
+# dev.off()
+```
+
+## Finding differentially expressed features
+```{r message = FALSE}
+df_sub.markers <- FindAllMarkers(df_sub, only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
+write.table(df_sub.markers, paste0(outdir, "control1.FindAllMarkers.sub.clusters.xls"), sep = "\t", col.names = NA)
+df_sub.markers %>% group_by(cluster) %>% top_n(n = 3, wt = avg_log2FC) 
+```
+
+# Feature plot, a few as an example
+```{r}
+FeaturePlot(df_sub, features =c("VAChT", "VGlut"), coord.fixed=5)
+FeaturePlot(df_sub, features =c("repo", "gcm"), coord.fixed=5)
+```
+
+## Feature plot one by one
+```{r echo = T, results = 'hide'}
+# marker genes from paper main text
+known_marker_genes = list(
+  cholinergic=c("VAChT"),
+  glutamatergic=c("VGlut"),
+  GABAergic_neurons=c("Gad1"),
+  serotonergic=c("SerT"),
+  octopaminergic_tyraminergic=c("Tdc2"),
+  dopaminergic=c("ple"),
+  photoreceptors=c("ninaC", "trp", "trpl"),
+  hemocytes=c("Hml"),
+  astrocytes=c("alrm"),
+  cortex_glia=c("wrapper"),
+  surface_glia=c("Indy"),
+  perineurial=c("Vmat"),
+  subperineurial_glia=c("moody"),
+  Kenyon_cells=c("ey", "prt"),
+  ab_lobe=c("sNPF"),
+  ab_prime_lobe=c("trio"),
+  gamma_lobe=c("sNPF", "trio"),
+  Mi1_neurons =c("hth", "bsh"),
+  T1_neurons =c("Eaat1"),
+  GABAergic_Pm1_Pm2_Pm3 =c("Lim3", "svp", "Vsx1"),
+  Lawf1_neurons =c("eya", "hth"),
+  Lawf2_neurons =c("eya", "hth", "Lim1"),
+  dorsal_cluster_neurons  =c("ato", "acj6"),
+  fructose_sensing_neurons  =c("Crz")
+)
+
+plots = FeaturePlot(df_sub, ncol =4, by.col =F, combine = F, reduction='umap', features = unlist(known_marker_genes, use.names = F))
+pdf(paste0(outdir, "control1.markergenes.paperMain.recluster.seperate.pdf"))
+sapply(plots, print)
+dev.off()
+
+# marker genes from figure 1A-E
+known_marker_genes = list(
+  serotonergic=c("SerT"),
+  octopaminergic_tyraminergic_neurons=c("Tdc2"),
+  dopaminergic_neurons=c("ple"),
+  mushroom_body=c("ey"),
+  Kenyon_cells=c("prt"),
+  astrocyte_like_glia=c("alrm"),
+  cortex_glia=c("wrapper"),
+  hemocytes=c("Hml"),
+  OPN_adPN_lPN=c("otp", "hth", "Oaz", "acj6", "C15", "tnc", "kn"),
+  Poxn=c("CG14687", "Poxn", "Dh31", "Gad1", "trio", "grn", "HLH3B", "Dr", "Sox21b"),
+  DN1=c("CNMa", "cry", "Dh31", "Clk", "CR45566", "Pdfr", "gl"),
+  Clock=c("Pdf", "CG17777", "CG18599", "tim", "vri", "Clk", "cry", "Dh44", "Nplp1"),
+  Dm8_Tm5c=c("CG2016", "CG33777", "CG5910", "otk2", "CR43856", "Sulf1", "ort"),
+  T1=c("Eaat1", "CG14274", "hbn", "Crz", "GILT1", "orb", "ome", "Awh"),
+  Tm1_TmY8=c("Pka-C3", "CG2016", "Tk", "CG14340", "CG42458", "Drgx"),
+  T4_T5=c("CG14340", "CNMaR", "acj6", "Drgx", "Lim1", "SiaT", "Scp2"),
+  Pm1_Pm2=c("Hmx", "svp", "hth", "Lim3"),
+  Pm3=c("AstA", "CG10257", "Vsx2", "Vsx1", "Lim3"),
+  C2_C3=c("CG14989", "Gad1", "Ets65A", "hbn", "CG13698", "Dll"),
+  Mi1=c("sosie", "Pka-C3", "Mmp2", "Tk", "bsh", "CG2016")
+)
+
+plots = FeaturePlot(df_sub, ncol =4, by.col =F, combine = F, reduction='umap', features = unlist(known_marker_genes, use.names = F))
+pdf(paste0(outdir, "control1.markergenes.figure1AtoE.recluster.seperate.pdf"))
+sapply(plots, print)
+dev.off()
+```
+
