@@ -17,8 +17,6 @@ input_dir_suffix = args[2]
 out_dir = args[3]
 samples = args[4:]
 
-# samples = ["CRN00224913", "CRN00224914", "CRN00224915", "CRN00224916", "CRN00224917", "CRN00224918", "CRN00224919", "CRN00224920"]
-
 for sample in samples:
   input_dir = input_dir_prefix + sample + input_dir_suffix
   print("reading from: ", input_dir)

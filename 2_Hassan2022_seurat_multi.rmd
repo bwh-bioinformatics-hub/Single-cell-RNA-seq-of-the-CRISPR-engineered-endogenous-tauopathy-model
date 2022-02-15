@@ -1,0 +1,195 @@
+---
+title: "scRNA-seq data analysis of dissected fly brain, Hassan project, 2022"
+author: "Tingting"
+date: "02/05/2022"
+output:
+  html_document: default
+  pdf_document: default
+---
+
+```{r, include=FALSE}
+library(dplyr)
+library(Seurat)
+library(patchwork)
+library(ggplot2)
+library(stringr)
+library(SoupX)
+library(reticulate)
+library(glmpca)
+library(SeuratWrappers)
+library(scry)
+library(reticulate)
+library(monocle3)
+```
+
+# Step 1: Preparation
+```{r}
+# Set paths
+pwd="/Volumes/BIOINFORMATICS/projects/hassan2022/scr/"
+indir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/02_cellranger_count_expectedCells/"
+outdir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/03_seurat/"
+scrubletdir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/03_scrublet/"
+seuratdir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/04_seurat_multi/"
+projectName="hassan2022"
+
+flag=1 # 1=louvain, 2= leiden, 0=louvain and leiden
+
+# Set working dir
+setwd(pwd)
+
+# If using Leiden algorithm in FindMarkers
+use_condaenv("r_leiden", required=TRUE)
+py_config()
+
+# Create a vector of sample names
+samples = c("CRN00224913", "CRN00224914", "CRN00224915", "CRN00224916", "CRN00224917",  "CRN00224918", "CRN00224919", "CRN00224920")
+
+#samples = c("CRN00224921", "CRN00224922", "CRN00224923", "CRN00224924", "CRN00224925", "CRN00224926")
+
+#samples = c("CRN00224913", "CRN00224914", "CRN00224915", "CRN00224916", "CRN00224917",  "CRN00224918", "CRN00224919", "CRN00224920", "CRN00224921", "CRN00224922", "CRN00224923", "CRN00224924", "CRN00224925", "CRN00224926")
+# samples = c("CRN00224913", "CRN00224914")
+```
+
+# Step 2: Pre-processing
+```{r message = FALSE, warning = FALSE}
+# Remove ambient RNA by SoupX
+data.10x = list()
+for (sample in samples) {
+  data.10x[[sample]] = load10X(paste0(indir, sample, "/outs/"))
+  data.10x[[sample]] <- autoEstCont(data.10x[[sample]], forceAccept=TRUE) #
+  print(sample)
+  data.10x[[sample]] <- adjustCounts(data.10x[[sample]])
+}
+# Create Seurat object after SoupX
+scrna.list = list()
+for (sample in samples) {
+    scrna.list[[sample]] = CreateSeuratObject(counts = data.10x[[sample]], min.cells=3, project=sample)
+}
+# Remove raw data to save memory
+rm(data.10x)
+# Add percent.mt and percent.rb to cell level metadata
+for (sample in samples) {
+  scrna.list[[sample]][["percent.mt"]] <- PercentageFeatureSet(scrna.list[[sample]], pattern = "^mt:") 
+  scrna.list[[sample]][["percent.rb"]] <- PercentageFeatureSet(scrna.list[[sample]], pattern = "^Rp[LS]")
+}
+# Run doublet detection scripts
+#system2(command = "bash", args = c("run_scrublet_multi.sh"))
+# Read in doublet scores
+for (sample in samples){
+  doublet_scores <- scan(paste0(scrubletdir, sample, "_srublet.score"))
+  predicted_doublets <- scan(paste0(scrubletdir, sample, "_srublet.logic"))   
+  ds <- as.data.frame(cbind(doublet_scores, predicted_doublets))
+  ds$predicted_doublets <- as.logical(ds$predicted_doublets)
+  rownames(ds) <- rownames(scrna.list[[sample]]@meta.data) 
+  scrna.list[[sample]] <- AddMetaData(scrna.list[[sample]], ds)
+  scrna.list[[sample]] <- subset(scrna.list[[sample]], subset=predicted_doublets == FALSE)
+}
+```
+
+# Step 3: QC
+```{r }
+# Filtered cells with 3SD of mean nCount and nFeature, percent of mito
+qc_cutoff = 3
+mito_cutoff = 10
+for (sample in samples){
+  mean.nCount <- mean(scrna.list[[sample]]@meta.data$nCount_RNA)
+  sd.nCount <- sd(scrna.list[[sample]]@meta.data$nCount_RNA)
+  mean.nFeature <- mean(scrna.list[[sample]]@meta.data$nFeature_RNA)
+  sd.nFeature <- sd(scrna.list[[sample]]@meta.data$nFeature_RNA)
+  scrna.list[[sample]] <- subset(scrna.list[[sample]], subset = nCount_RNA > mean.nCount - qc_cutoff*sd.nCount & nCount_RNA < mean.nCount + qc_cutoff*sd.nCount & nFeature_RNA > mean.nFeature - qc_cutoff*sd.nFeature & nFeature_RNA < mean.nFeature + qc_cutoff*sd.nFeature & percent.mt < mito_cutoff)
+}
+```
+
+# Step4: Merge Seurat objects into an object
+```{r message=FALSE, warning = FALSE}
+scrna <- scrna.list[[1]]
+y.list=c()
+for(k in 2:length(samples)){
+  y.list=c(y.list, scrna.list[[k]])
+}
+scrna <- merge(scrna, y=y.list, add.cell.ids = samples, project=projectName)
+#rm(scrna.list)
+rm(y.list)
+str(scrna@meta.data)
+#saveRDS(scrna, file = sprintf("%s/MergedSeuratObjectHassan.rds", outdir))
+```
+
+# Step5: Integration
+```{r message=FALSE, warning = FALSE}
+# normalize and identify variable features for each dataset independently
+scrna.list <- lapply(X = scrna.list, FUN = function(x) {
+    x <- NormalizeData(x)
+    x <- FindVariableFeatures(x, selection.method = "vst", nfeatures = 2000)
+})
+
+# select features that are repeatedly variable across datasets for integration
+features <- SelectIntegrationFeatures(object.list = scrna.list)
+
+# Perform integration
+scrna.anchors <- FindIntegrationAnchors(object.list = scrna.list, anchor.features = features)
+scrna.combined <- IntegrateData(anchorset = scrna.anchors)
+
+# Perform an integrated analysis
+DefaultAssay(scrna.combined) <- "integrated"
+scrna.combined <- ScaleData(scrna.combined, verbose = FALSE)
+scrna.combined <- RunPCA(scrna.combined, npcs = 15, verbose = FALSE)
+scrna.combined <- RunUMAP(scrna.combined, reduction = "pca", dims = 1:15)
+scrna.combined <- FindNeighbors(scrna.combined, reduction = "pca", dims = 1:15)
+scrna.combined <- FindClusters(scrna.combined, resolution = 0.5)
+
+
+p1 <- DimPlot(scrna.combined, reduction = "umap", group.by = "orig.ident")
+p2 <- DimPlot(scrna.combined, reduction = "umap", label = TRUE, repel = TRUE)
+p1
+pdf(paste0(outdir, "combined.umap.colorBySample.pdf"))
+p1 + coord_fixed()
+dev.off()
+p2
+pdf(paste0(outdir, "combined.umap.colorByCluster.pdf"))
+p2 + coord_fixed()
+dev.off()
+
+p3 <- DimPlot(scrna.combined, reduction = "umap", split.by = "orig.ident")
+p3
+pdf(paste0(outdir, "combined.umap.samples.pdf"))
+p3 + coord_fixed()
+dev.off()
+```
+
+
+# Identify conserved cell type markers
+```{r message=FALSE, warning = FALSE}
+# For performing differential expression after integration, we switch back to the original data
+DefaultAssay(scrna.combined) <- "RNA"
+nk.markers <- FindConservedMarkers(scrna.combined, ident.1 = 6, grouping.var = "orig.ident", verbose = FALSE)
+head(nk.markers)
+
+#FeaturePlot(scrna.combined, features = c("CD3D", "SELL", "CREM", "CD8A", "GNLY", "CD79A", "FCGR3A", "CCL2", "PPBP"), min.cutoff = "q9")
+
+#scrna.combined <- RenameIdents(scrna.combined, `0` = "CD14 Mono", `1` = "CD4 Naive T", `2` = "CD4 Memory T", `3` = "CD16 Mono", `4` = "B", `5` = "CD8 T", `6` = "NK", `7` = "T activated", `8` = "DC", `9` = "B Activated", `10` = "Mk", `11` = "pDC", `12` = "Eryth", `13` = "Mono/Mk Doublets", `14` = "HSPC")
+#DimPlot(scrna.combined, label = TRUE)
+
+#Idents(scrna.combined) <- factor(Idents(scrna.combined), levels = c("HSPC", "Mono/Mk Doublets", "pDC", "Eryth", "Mk", "DC", "CD14 Mono", "CD16 Mono", "B Activated", "B", "CD8 T", "NK", "T activated", "CD4 Naive T", "CD4 Memory T"))
+#markers.to.plot <- c("CD3D", "CREM", "HSPH1", "SELL", "GIMAP5", "CACYBP", "GNLY", "NKG7", "CCL5", "CD8A", "MS4A1", "CD79A", "MIR155HG", "NME1", "FCGR3A", "VMO1", "CCL2", "S100A9", "HLA-DQA1", "GPR183", "PPBP", "GNG11", "HBA2", "HBB", "TSPAN13", "IL3RA", "IGJ", "PRSS57")
+#DotPlot(scrna.combined, features = markers.to.plot, cols = c("blue", "red"), dot.scale = 8, split.by = "orig.ident") + RotatedAxis()
+
+```
+
+# Identify differential expressed genes across conditions
+```{r message=FALSE, warning = FALSE}
+scrna <- scrna.list[[1]]
+y.list=c()
+for(k in 2:length(samples)){
+  y.list=c(y.list, scrna.list[[k]])
+}
+scrna <- merge(scrna, y=y.list, add.cell.ids = samples, project=projectName)
+#rm(scrna.list)
+rm(y.list)
+str(scrna@meta.data)
+#saveRDS(scrna, file = sprintf("%s/MergedSeuratObjectHassan.rds", outdir))
+```
+
+
+
+
+
