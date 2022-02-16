@@ -206,7 +206,7 @@ for (sample in samples){
   ggsave(paste0(outdir, sample, ".top10markergenes.heatmap.pdf"), width = 8, height = 6)
 }
 
-# Step 9: Feature plot
+# Step 9: Feature plot with dendrogram
 # dengrogram function
 new_dotplot <- function(object = NULL, features = NULL, group.by = NULL, genes.on.x = TRUE, 
                         size.breaks.values = NULL, color.breaks.values = c(-3, -2, -1, 0, 1, 2, 3), shape.scale = 12, 
@@ -271,20 +271,37 @@ new_dotplot <- function(object = NULL, features = NULL, group.by = NULL, genes.o
     data.final <- cbind(data.final, data.plot[,c(2,5)])
   }
   colnames(data.final)[3:4] <- c("Percent expressed", "Average expression")
-  dot_plot(data.final, size_var = "Percent expressed", "Average expression", 
+  dot_plot(data.final, size_var = "Percent expressed", "Average expression",
            dend_y_var = dend_y_var, dend_x_var = dend_x_var,
            dist = "euclidean", hclust_method = "ward.D2", x.lab.pos = "bottom",
            display_max_sizes = FALSE, size.breaks.values = size.breaks.values,
            shape.scale = shape.scale, color.breaks.values = color.breaks.values, cols.use = cols.use, y.lab.size.factor=0.05)
 }  # modify y lab text size here
 
+# making feature plots in one file
+samples = c("CRN00224913", "CRN00224914", "CRN00224915", "CRN00224916", "CRN00224919", "CRN00224920", "CRN00224921", "CRN00224922", "CRN00224923", "CRN00224924", "CRN00224925", "CRN00224926")
+
+pdf(file = paste0(outdir, "markergenes.dotPlot.clustered.pdf"), height = 6, width = 20)
 for (sample in samples){
-  dp = DotPlot(scrna.list[[sample]], features = markers) + RotatedAxis()
+  dp = DotPlot(scrna.list[[sample]], features = markers) + ggtitle(sample) + RotatedAxis()
   dotplot = dot_plot(dp$data[,c(3,4,1,2,5)], shape_var = "pct.exp", col_var = "avg.exp.scaled", shape_legend = "Percent Expressed", col_legend = "Average Expression", x.lab.pos = "bottom", dend_x_var = c("pct.exp","avg.exp.scaled"), dend_y_var = c("pct.exp","avg.exp.scaled"), hclust_method = "ward.D2", do.return=T, y.lab.size.factor=0.1)
-#Idents(scrna.list[[sample]])=factor(Idents(scrna.list[[sample]]), levels=dotplot$plot$grobs[[4]]$label)
+  plot1 <- new_dotplot(scrna.list[[sample]], 
+                       features = dotplot$plot$grobs[[10]]$label, 
+                       group.by = "seurat_clusters", 
+                       shape.scale = 6, 
+                       color.breaks.values = c(-2, -1, 0, 1, 2), 
+                       size.breaks.values = c(0, 25, 50, 75, 100)) + 
+    theme(axis.text = element_text(size = 12))
+  print(plot1)
+}
+dev.off()
+
+# making feature plots in seperate files
+for (sample in samples){
+  dp = DotPlot(scrna.list[[sample]], features = markers) + ggtitle(sample) + RotatedAxis() #+ theme(aspect.ratio=10/40)
+  dotplot = dot_plot(dp$data[,c(3,4,1,2,5)], shape_var = "pct.exp", col_var = "avg.exp.scaled", shape_legend = "Percent Expressed", col_legend = "Average Expression", x.lab.pos = "bottom", dend_x_var = c("pct.exp","avg.exp.scaled"), dend_y_var = c("pct.exp","avg.exp.scaled"), hclust_method = "ward.D2", do.return=T, y.lab.size.factor=0.1)
+  pdf(paste0(outdir, sample, ".markergenes.dotPlot.clustered.pdf"), height = 6, width = 20, onefile=F)
   p1 <- new_dotplot(scrna.list[[sample]], features = dotplot$plot$grobs[[10]]$label, group.by = "seurat_clusters", shape.scale = 6, color.breaks.values = c(-2, -1, 0, 1, 2), size.breaks.values = c(0, 25, 50, 75, 100)) + theme(axis.text = element_text(size = 12))
-  p1
-  pdf(paste0(outdir, sample, ".markergenes.dotPlot.clustered.pdf"), height = 6, width = 20)
   print(p1)
   dev.off()
 }

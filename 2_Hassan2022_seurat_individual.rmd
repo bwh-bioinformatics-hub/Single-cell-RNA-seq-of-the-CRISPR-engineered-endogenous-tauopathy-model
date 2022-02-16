@@ -19,7 +19,7 @@ library(glmpca)
 library(SeuratWrappers)
 library(scry)
 library(reticulate)
-library(monocle3)
+#library(monocle3)
 library(FlexDotPlot)
 ```
 
@@ -43,8 +43,10 @@ use_condaenv("r_leiden", required=TRUE)
 py_config()
 
 # Create a vector of sample names
-# samples = c("CRN00224913", "CRN00224914", "CRN00224915", "CRN00224916", "CRN00224917",  "CRN00224918", "CRN00224919", "CRN00224920", "CRN00224921", "CRN00224922", "CRN00224923", "CRN00224924", "CRN00224925", "CRN00224926")
-samples = c("CRN00224913", "CRN00224914", "CRN00224915")
+
+samples = c("CRN00224913", "CRN00224914", "CRN00224915", "CRN00224916", "CRN00224917",  "CRN00224918", "CRN00224919", "CRN00224920", "CRN00224921", "CRN00224922", "CRN00224923", "CRN00224924", "CRN00224925", "CRN00224926")
+
+#samples = c("CRN00224913", "CRN00224914")
 
 markers <-  c("VAChT", "VGlut", "Gad1", "Vmat", "moody", "ey", "prt", "sNPF", "trio", "hth", "bsh", "Eaat1", "Lim3", "svp", "Vsx1", "eya", "Lim1", "ato", "acj6", "Crz", "SerT", "Tdc2", "ple", "alrm", "wrapper", "Hml", "otp", "Oaz", "C15", "tnc", "kn", "CG14687", "Poxn", "Dh31", "grn", "HLH3B", "Dr", "Sox21b", "CNMa", "cry", "Clk", "lncRNA:CR45566", "Pdfr", "gl", "Pdf", "CG17777", "CG18599", "tim", "vri", "Dh44", "Nplp1", "CG2016", "CG33777", "CG5910", "otk2", "lncRNA:CR43856", "Sulf1", "ort", "Pka-C3", "Tk", "Hmx", "AstA", "CG10257", "Vsx2", "CG14989", "Ets65A", "hbn", "CG13698", "Dll", "sosie", "Mmp2", "tup", "Eip63F-1", "msi", "CG10804", "CG343", "bru3", "dati", "mbl", "lncRNA:CR44024", "CG9650", "CG4577", "ap", "scro", "CG14757", "DIP-theta", "beat-Ia", "side-IV", "CG42750", "Drgx", "CNMaR", "Sox102F", "SoxN", "CG14340", "cv-c")
 ```
@@ -211,7 +213,7 @@ dev.off()
 ```
 
 # Step 7: Save the data
-```{r eval = FALSE}
+```{r}
 for (sample in samples){
   saveRDS(scrna.list[[sample]], paste0(outdir, sample, ".seurat.rds"))
   scrna.list[[sample]] <- readRDS(paste0(outdir, sample, ".seurat.rds"))
@@ -219,7 +221,7 @@ for (sample in samples){
 ```
 
 # Step 8: Finding differentially expressed features
-```{r eval = FALSE, message = FALSE}
+```{r eval = FALSE message = FALSE}
 scrna.markders = list()
 for (sample in samples){
   scrna.markders[[sample]] <- FindAllMarkers(scrna.list[[sample]], only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
@@ -235,7 +237,7 @@ for (sample in samples){
 ```
 
 # Step 9: Feature plot with dendrogram
-```{r}
+```{r eval = FALSE }
 # dengrogram function
 new_dotplot <- function(object = NULL, features = NULL, group.by = NULL, genes.on.x = TRUE, 
                         size.breaks.values = NULL, color.breaks.values = c(-3, -2, -1, 0, 1, 2, 3), shape.scale = 12, 
@@ -300,23 +302,57 @@ new_dotplot <- function(object = NULL, features = NULL, group.by = NULL, genes.o
     data.final <- cbind(data.final, data.plot[,c(2,5)])
   }
   colnames(data.final)[3:4] <- c("Percent expressed", "Average expression")
-  dot_plot(data.final, size_var = "Percent expressed", "Average expression", 
+  dot_plot(data.final, size_var = "Percent expressed", "Average expression",
            dend_y_var = dend_y_var, dend_x_var = dend_x_var,
            dist = "euclidean", hclust_method = "ward.D2", x.lab.pos = "bottom",
            display_max_sizes = FALSE, size.breaks.values = size.breaks.values,
            shape.scale = shape.scale, color.breaks.values = color.breaks.values, cols.use = cols.use, y.lab.size.factor=0.05)
 }  # modify y lab text size here
+```
 
+```{r eval = FALSE }
+samples = c("CRN00224913", "CRN00224914", "CRN00224915", "CRN00224916", "CRN00224919", "CRN00224920", "CRN00224921", "CRN00224922", "CRN00224923", "CRN00224924", "CRN00224925", "CRN00224926")
+```
+
+```{r eval = FALSE }
+# making feature plots in one file
+pdf(file = paste0(outdir, "markergenes.dotPlot.clustered.pdf"), height = 6, width = 20)
 for (sample in samples){
-  dp = DotPlot(scrna.list[[sample]], features = markers) + RotatedAxis()
+  dp = DotPlot(scrna.list[[sample]], features = markers) + ggtitle(sample) + RotatedAxis()
   dotplot = dot_plot(dp$data[,c(3,4,1,2,5)], shape_var = "pct.exp", col_var = "avg.exp.scaled", shape_legend = "Percent Expressed", col_legend = "Average Expression", x.lab.pos = "bottom", dend_x_var = c("pct.exp","avg.exp.scaled"), dend_y_var = c("pct.exp","avg.exp.scaled"), hclust_method = "ward.D2", do.return=T, y.lab.size.factor=0.1)
-#Idents(scrna.list[[sample]])=factor(Idents(scrna.list[[sample]]), levels=dotplot$plot$grobs[[4]]$label)
+  plot1 <- new_dotplot(scrna.list[[sample]], 
+                       features = dotplot$plot$grobs[[10]]$label, 
+                       group.by = "seurat_clusters", 
+                       shape.scale = 6, 
+                       color.breaks.values = c(-2, -1, 0, 1, 2), 
+                       size.breaks.values = c(0, 25, 50, 75, 100)) + 
+    theme(axis.text = element_text(size = 12))
+  print(plot1)
+}
+dev.off()
+```
+
+```{r eval = FALSE }
+# making feature plots in seperate files
+for (sample in samples){
+  dp = DotPlot(scrna.list[[sample]], features = markers) + ggtitle(sample) + RotatedAxis() #+ theme(aspect.ratio=10/40)
+  dotplot = dot_plot(dp$data[,c(3,4,1,2,5)], shape_var = "pct.exp", col_var = "avg.exp.scaled", shape_legend = "Percent Expressed", col_legend = "Average Expression", x.lab.pos = "bottom", dend_x_var = c("pct.exp","avg.exp.scaled"), dend_y_var = c("pct.exp","avg.exp.scaled"), hclust_method = "ward.D2", do.return=T, y.lab.size.factor=0.1)
   pdf(paste0(outdir, sample, ".markergenes.dotPlot.clustered.pdf"), height = 6, width = 20, onefile=F)
   p1 <- new_dotplot(scrna.list[[sample]], features = dotplot$plot$grobs[[10]]$label, group.by = "seurat_clusters", shape.scale = 6, color.breaks.values = c(-2, -1, 0, 1, 2), size.breaks.values = c(0, 25, 50, 75, 100)) + theme(axis.text = element_text(size = 12))
   print(p1)
   dev.off()
 }
 ```
+
+# Cell type annotation!!!
+```{r eval = FALSE}
+df_anno <- df
+df_anno <- RenameIdents(df_anno, `0` = "Cholinergic neurons", `1` = "Neurons", `2` = "Glutamatergic neurons",  `3` = "Neurons", `4` = "Glutamatergic neurons", `5` = "Tm1/TmY8", `6` = "T4/T5", `7` = "Kenyon cells", `8` = "Unknown", `9` = "Mi1", `10` = "Gamma lobe", `11` = "Glia", `12` = "C2/C3", `13` ="T1")
+```
+
+
+
+
 
 
 
