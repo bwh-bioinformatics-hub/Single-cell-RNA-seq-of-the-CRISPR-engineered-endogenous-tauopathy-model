@@ -70,5 +70,7 @@ cellranger count  --id=$annotation \
 ###########################################################
 
 
-# to find out mapping parameters
-
+# location of mapping parameters
+/data/bioinformatics/projects/hassan2021/output/02_cellranger_count/outs/metrics_summary.csv
+# locations of determined and undetermined reads
+/data/bioinformatics/projects/hassan2021/output/01_cellranger_mkfastq/outs/fastq_path/Reports/html/tree.html
