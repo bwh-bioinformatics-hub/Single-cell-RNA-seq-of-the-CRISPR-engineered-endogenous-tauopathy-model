@@ -19,7 +19,7 @@ library(glmpca)
 library(SeuratWrappers)
 library(scry)
 library(reticulate)
-#library(monocle3)
+library(monocle3)
 library(FlexDotPlot)
 ```
 
@@ -39,8 +39,8 @@ setwd(pwd)
 flag=1 # 1=louvain, 2=GLMPCA, 3= leiden, 0=louvain and GLMPCA and leiden 
 
 # If using Leiden algorithm in FindMarkers
-use_condaenv("r_leiden", required=TRUE)
-py_config()
+# use_condaenv("r_leiden", required=TRUE)
+# py_config()
 
 # Create a vector of sample names
 
@@ -94,7 +94,7 @@ for (sample in samples){
 ```
 
 # Step 3: QC
-```{r eval = FALSE}
+```{r }
 # Feature plot before QC
 pdf(file = paste0(outdir, "QC.plot.before.pdf"), width = 8, height = 8)
 for (sample in samples){
@@ -121,7 +121,7 @@ for (sample in samples){
 }
 ```
 
-```{r eval = FALSE}
+```{r }
 # Feature plot after QC
 pdf(file = paste0(outdir, "QC.plot.after.pdf"))
 for (sample in samples){
@@ -201,7 +201,7 @@ if (flag==3 | flag==0){
 pdf(file = paste0(outdir, "cluster.umap.leiden.pdf"), width = 6, height = 6)
 scrna.leiden.list = list()
 for (sample in samples){
-  scrna.leiden.list[[sample]] <- RunPCA(scrna.default.list[[sample]], npcs = 10, verbose = FALSE) 
+  scrna.leiden.list[[sample]] <- RunPCA(scrna.default.list[[sample]], npcs = 15, verbose = FALSE) 
   scrna.leiden.list[[sample]] <- FindNeighbors(scrna.leiden.list[[sample]], reduction = "pca", dims = 1:15) # picked 10
   scrna.leiden.list[[sample]] <- FindClusters(scrna.leiden.list[[sample]], resolution = 0.5, algorithm = 4)
   scrna.leiden.list[[sample]] <- RunUMAP(scrna.leiden.list[[sample]], reduction = "pca", dims = 1:15)
@@ -221,7 +221,7 @@ for (sample in samples){
 ```
 
 # Step 8: Finding differentially expressed features
-```{r eval = FALSE message = FALSE}
+```{r message = FALSE}
 scrna.markders = list()
 for (sample in samples){
   scrna.markders[[sample]] <- FindAllMarkers(scrna.list[[sample]], only.pos = TRUE, min.pct = 0.25, logfc.threshold = 0.25)
@@ -237,7 +237,7 @@ for (sample in samples){
 ```
 
 # Step 9: Feature plot with dendrogram
-```{r eval = FALSE }
+```{r }
 # dengrogram function
 new_dotplot <- function(object = NULL, features = NULL, group.by = NULL, genes.on.x = TRUE, 
                         size.breaks.values = NULL, color.breaks.values = c(-3, -2, -1, 0, 1, 2, 3), shape.scale = 12, 
@@ -314,8 +314,8 @@ new_dotplot <- function(object = NULL, features = NULL, group.by = NULL, genes.o
 samples = c("CRN00224913", "CRN00224914", "CRN00224915", "CRN00224916", "CRN00224919", "CRN00224920", "CRN00224921", "CRN00224922", "CRN00224923", "CRN00224924", "CRN00224925", "CRN00224926")
 ```
 
-```{r eval = FALSE }
-# making feature plots in one file
+```{r }
+# making dot plot in one file
 pdf(file = paste0(outdir, "markergenes.dotPlot.clustered.pdf"), height = 6, width = 20)
 for (sample in samples){
   dp = DotPlot(scrna.list[[sample]], features = markers) + ggtitle(sample) + RotatedAxis()
@@ -332,8 +332,8 @@ for (sample in samples){
 dev.off()
 ```
 
-```{r eval = FALSE }
-# making feature plots in seperate files
+```{r }
+# making dot plot in seperate files
 for (sample in samples){
   dp = DotPlot(scrna.list[[sample]], features = markers) + ggtitle(sample) + RotatedAxis() #+ theme(aspect.ratio=10/40)
   dotplot = dot_plot(dp$data[,c(3,4,1,2,5)], shape_var = "pct.exp", col_var = "avg.exp.scaled", shape_legend = "Percent Expressed", col_legend = "Average Expression", x.lab.pos = "bottom", dend_x_var = c("pct.exp","avg.exp.scaled"), dend_y_var = c("pct.exp","avg.exp.scaled"), hclust_method = "ward.D2", do.return=T, y.lab.size.factor=0.1)
@@ -343,17 +343,4 @@ for (sample in samples){
   dev.off()
 }
 ```
-
-# Cell type annotation!!!
-```{r eval = FALSE}
-df_anno <- df
-df_anno <- RenameIdents(df_anno, `0` = "Cholinergic neurons", `1` = "Neurons", `2` = "Glutamatergic neurons",  `3` = "Neurons", `4` = "Glutamatergic neurons", `5` = "Tm1/TmY8", `6` = "T4/T5", `7` = "Kenyon cells", `8` = "Unknown", `9` = "Mi1", `10` = "Gamma lobe", `11` = "Glia", `12` = "C2/C3", `13` ="T1")
-```
-
-
-
-
-
-
-
 
