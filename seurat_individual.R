@@ -30,11 +30,15 @@ projectName = args[6]
 marker_link = args[7]
 marker_sheet = args[8]
 flag = args[9]
+mtPattern = args[10]
+rbPattern = args[11]
+mitoCutoff = args[12]
+
 
 message("Read in marker genes")
-gsurl=$marker_link
+gsurl=marker_link
 gs4_deauth()
-markers = read_sheet(gsurl, sheet = $marker_sheet) %>%
+markers = read_sheet(gsurl, sheet = marker_sheet) %>%
   select(Markers) %>% as.list()
 
 message("Set working dir")
@@ -48,22 +52,11 @@ message("If using Leiden algorithm in FindMarkers")
 message("Step 2: Pre-processing")
 message("Remove ambient RNA by SoupX")
 data.10x = list()
-for (sample in samples){
-  filt.matrix <- Read10X_h5(paste0(indir, sample, "/outs/filtered_feature_bc_matrix.h5"), use.names = F)
-  raw.matrix <- Read10X_h5(paste0(indir, sample, "/outs/raw_feature_bc_matrix.h5"), use.names = F)
-  srat <- CreateSeuratObject(counts = filt.matrix)
-  soup.channel <- SoupChannel(raw.matrix, filt.matrix)
-  srat <- SCTransform(srat, verbose = F)
-  srat <- RunPCA(srat, verbose = F)
-  srat <- RunUMAP(srat, dims = 1:30, verbose = F)
-  srat <- FindNeighbors(srat, dims = 1:30, verbose = F)
-  srat <- FindClusters(srat, verbose = T)
-  meta <- srat@meta.data
-  umap <- srat@reductions$umap@cell.embeddings
-  soup.channel <- setClusters(soup.channel, setNames(meta$seurat_clusters, rownames(meta)))
-  soup.channel <- setDR(soup.channel, umap)
-  soup.channel <- autoEstCont(soup.channel)
-  data.10x[[sample]] <- adjustCounts(soup.channel, roundToInt = T)
+for (sample in samples) {
+  data.10x[[sample]] = load10X(paste0(indir, sample, "/outs/"))
+  data.10x[[sample]] <- autoEstCont(data.10x[[sample]], forceAccept=TRUE) #
+  print(sample)
+  data.10x[[sample]] <- adjustCounts(data.10x[[sample]])
 }
 
 message("Create Seurat object after SoupX")
@@ -74,10 +67,11 @@ for (sample in samples) {
 
 message("Remove raw data to save memory")
 rm(data.10x)
+
 message("Add percent.mt and percent.rb to cell level metadata")
 for (sample in samples) {
-  scrna.list[[sample]][["percent.mt"]] <- PercentageFeatureSet(scrna.list[[sample]], pattern = "^mt:") 
-  scrna.list[[sample]][["percent.rb"]] <- PercentageFeatureSet(scrna.list[[sample]], pattern = "^Rp[LS]")
+  scrna.list[[sample]][["percent.mt"]] <- PercentageFeatureSet(scrna.list[[sample]], pattern = mtPattern)
+  scrna.list[[sample]][["percent.rb"]] <- PercentageFeatureSet(scrna.list[[sample]], pattern = rbPattern)
 }
 
 message("Rename nCount_RNA and nFeature_RNA")
@@ -89,7 +83,8 @@ for (sample in samples) {
 }
 
 message("Run doublet detection scripts")
-system2(command = "bash", args = c("run_scrublet_multi.sh"))
+#system2(command = "bash", args = c("run_scrublet_multi.sh"))
+
 message("Read in doublet scores")
 for (sample in samples){
   doublet_scores <- scan(paste0(scrubletdir, sample, "_srublet.score"))
@@ -102,9 +97,8 @@ for (sample in samples){
 }
 
 
-message("Step 3: QC")
 message("Feature plot before QC")
-pdf(file = paste0(outdir, "QC.plot.before.pdf"), width = 8, height = 8)
+pdf(file = paste0(outdir, "seurat_individual/", "QC.plot.before.pdf"), width = 8, height = 8)
 for (sample in samples){
   plot1 <- VlnPlot(scrna.list[[sample]], features = c("nGene", "nUMI", "percent.mt", "percent.rb"), ncol = 4, pt.size = 0.1) & theme(plot.title = element_text(size=10)) + theme(aspect.ratio=40/10)
   print(plot1 + coord_fixed())
@@ -117,17 +111,17 @@ dev.off()
 
 message("Filtered cells with 3SD of mean nCount and nFeature, percent of mito")
 qc_cutoff = 3
-mito_cutoff = 10
+mito_cutoff = mitoCutoff
 for (sample in samples){
-  mean.nCount <- mean(scrna.list[[sample]]@meta.data$nCount_RNA)
-  sd.nCount <- sd(scrna.list[[sample]]@meta.data$nCount_RNA)
-  mean.nFeature <- mean(scrna.list[[sample]]@meta.data$nFeature_RNA)
-  sd.nFeature <- sd(scrna.list[[sample]]@meta.data$nFeature_RNA)
-  scrna.list[[sample]] <- subset(scrna.list[[sample]], subset = nCount_RNA > mean.nCount - qc_cutoff*sd.nCount & nCount_RNA < mean.nCount + qc_cutoff*sd.nCount & nFeature_RNA > mean.nFeature - qc_cutoff*sd.nFeature & nFeature_RNA < mean.nFeature + qc_cutoff*sd.nFeature & percent.mt < mito_cutoff)
+  mean.nCount <- mean(scrna.list[[sample]]@meta.data$nUMI)
+  sd.nCount <- sd(scrna.list[[sample]]@meta.data$nUMI)
+  mean.nFeature <- mean(scrna.list[[sample]]@meta.data$nGene)
+  sd.nFeature <- sd(scrna.list[[sample]]@meta.data$nGene)
+  scrna.list[[sample]] <- subset(scrna.list[[sample]], subset = nUMI > mean.nCount - qc_cutoff*sd.nCount & nUMI < mean.nCount + qc_cutoff*sd.nCount & nGene > mean.nFeature - qc_cutoff*sd.nFeature & nGene < mean.nFeature + qc_cutoff*sd.nFeature & percent.mt < mito_cutoff)
 }
 
 message("Feature plot after QC")
-pdf(file = paste0(outdir, "QC.plot.after.pdf"))
+pdf(file = paste0(outdir, "seurat_individual/", "QC.plot.after.pdf"))
 for (sample in samples){
   plot1 <- VlnPlot(scrna.list[[sample]], features = c("nGene", "nUMI", "percent.mt", "percent.rb"), ncol = 4, pt.size = 0.1) & theme(plot.title = element_text(size=10)) + theme(aspect.ratio=40/10)
   print(plot1 + coord_fixed())
@@ -149,7 +143,7 @@ for (sample in samples){
 
 
 message("Step 5: Determine the ‘dimensionality’ of the dataset")
-pdf(file = paste0(outdir, "elbow.plot.pdf"), width = 8, height = 8)
+pdf(file = paste0(outdir, "seurat_individual/", "elbow.plot.pdf"), width = 8, height = 8)
 for (sample in samples){
   scrna.list[[sample]] <- RunPCA(scrna.list[[sample]], verbos = FALSE)
   plot1 <- ElbowPlot(scrna.list[[sample]]) + ggtitle(sample) + theme(aspect.ratio=5/10) + theme(plot.margin = unit(c(3, 3, 3, 3), "cm"))
@@ -163,6 +157,7 @@ scrna.default.list = list()
 for (sample in samples){
   scrna.default.list[[sample]] <- scrna.list[[sample]]
 }
+
 message("Cell clustering using default settings: PCA, Louvain. CHANGE dims according to elbow plot !!!")
 if (flag==1 | flag==0){
   pdf(file = paste0(outdir, "cluster.umap.louvain.pdf"), width = 6, height = 6)
@@ -179,7 +174,7 @@ dev.off()
 
 message("Cell clustering using GLMPCA")
 if (flag==2 | flag==0){
-  pdf(file = paste0(outdir, "cluster.umap.glmpca.pdf"), width = 6, height = 6)
+  pdf(file = paste0(outdir, "seurat_individual/", "cluster.umap.glmpca.pdf"), width = 6, height = 6)
 scrna.glmpca.list = list()
 for (sample in samples){
   scrna.glmpca.list[[sample]] <- RunGLMPCA(scrna.default.list[[sample]], L = 15)
@@ -194,7 +189,7 @@ dev.off()
 
 message("Cell clustering using Leiden")
 if (flag==3 | flag==0){
-pdf(file = paste0(outdir, "cluster.umap.leiden.pdf"), width = 6, height = 6)
+pdf(file = paste0(outdir, "seurat_individual/", "cluster.umap.leiden.pdf"), width = 6, height = 6)
 scrna.leiden.list = list()
 for (sample in samples){
   scrna.leiden.list[[sample]] <- RunPCA(scrna.default.list[[sample]], npcs = 15, verbose = FALSE) 

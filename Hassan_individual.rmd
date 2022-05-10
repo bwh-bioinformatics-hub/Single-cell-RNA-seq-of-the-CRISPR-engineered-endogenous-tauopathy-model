@@ -27,9 +27,9 @@ library(FlexDotPlot)
 ```{r}
 # Set paths
 pwd="/Volumes/BIOINFORMATICS/projects/hassan2022/scr/"
-indir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/02_cellranger_count_expectedCells/"
-outdir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/04_test/"
-scrubletdir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/03_scrublet/"
+indir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/merged/expectedCells/"
+outdir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/merged/seurat_individual/"
+scrubletdir="/Volumes/BIOINFORMATICS/projects/hassan2022/output/merged/scrublet/"
 projectName="hassan2022"
 
 # Set working dir
@@ -44,11 +44,9 @@ flag=1 # 1=louvain, 2=GLMPCA, 3= leiden, 0=louvain and GLMPCA and leiden
 
 # Create a vector of sample names
 
-samples = c("CRN00224913", "CRN00224914", "CRN00224915", "CRN00224916", "CRN00224917",  "CRN00224918", "CRN00224919", "CRN00224920", "CRN00224921", "CRN00224922", "CRN00224923", "CRN00224924", "CRN00224925", "CRN00224926")
+samples = c("control1", "CRN00224919", "CRN00224920", "P251L1merged", "P251L2merged", "CTRL2merged", "TauKO1merged", "LIB055588_CRN00233457", "LIB055588_CRN00233458")
 
-#samples = c("CRN00224913", "CRN00224914")
-
-markers <-  c("VAChT", "VGlut", "Gad1", "Vmat", "moody", "ey", "prt", "sNPF", "trio", "hth", "bsh", "Eaat1", "Lim3", "svp", "Vsx1", "eya", "Lim1", "ato", "acj6", "Crz", "SerT", "Tdc2", "ple", "alrm", "wrapper", "Hml", "otp", "Oaz", "C15", "tnc", "kn", "CG14687", "Poxn", "Dh31", "grn", "HLH3B", "Dr", "Sox21b", "CNMa", "cry", "Clk", "lncRNA:CR45566", "Pdfr", "gl", "Pdf", "CG17777", "CG18599", "tim", "vri", "Dh44", "Nplp1", "CG2016", "CG33777", "CG5910", "otk2", "lncRNA:CR43856", "Sulf1", "ort", "Pka-C3", "Tk", "Hmx", "AstA", "CG10257", "Vsx2", "CG14989", "Ets65A", "hbn", "CG13698", "Dll", "sosie", "Mmp2", "tup", "Eip63F-1", "msi", "CG10804", "CG343", "bru3", "dati", "mbl", "lncRNA:CR44024", "CG9650", "CG4577", "ap", "scro", "CG14757", "DIP-theta", "beat-Ia", "side-IV", "CG42750", "Drgx", "CNMaR", "Sox102F", "SoxN", "CG14340", "cv-c")
+markers <-  c("VAChT", "VGlut", "Gad1", "Vmat", "ey", "prt", "sNPF", "trio", "hth", "bsh", "Eaat1", "Lim3", "svp", "eya", "Lim1", "acj6", "Crz", "ple", "alrm", "kn", "CG14687", "Poxn", "Dh31", "grn", "Dr", "Sox21b", "Pdfr", "tim", "vri", "Nplp1", "CG2016", "CG33777", "CG5910", "otk2", "lncRNA:CR43856", "Sulf1", "ort", "Pka-C3", "Tk", "CG14989", "Ets65A", "hbn", "CG13698", "Dll", "sosie", "Mmp2", "tup", "Eip63F-1", "msi", "CG10804", "bru3", "dati", "mbl", "lncRNA:CR44024", "CG9650", "CG4577", "ap", "scro", "DIP-theta", "beat-Ia", "side-IV", "CG42750", "Drgx", "CNMaR", "Sox102F", "SoxN", "CG14340", "cv-c")
 ```
 
 # Step 2: Pre-processing
@@ -85,7 +83,7 @@ for (sample in samples) {
 
 ```{r eval = FALSE}
 # Run doublet detection scripts
-system2(command = "bash", args = c("run_scrublet_multi.sh"))
+system2(command = "bash", args = c("run_scrublet_multi_merged.sh"))
 ```
 
 ```{r}
