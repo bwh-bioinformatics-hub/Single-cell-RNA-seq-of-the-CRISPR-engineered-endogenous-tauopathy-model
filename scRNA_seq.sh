@@ -23,6 +23,7 @@ project_folder="/data/bioinformatics/projects/hassan2022/"
 pwd="/data/bioinformatics/projects/hassan2022/scr/"
 indir="/data/bioinformatics/projects/hassan2022/output/merged/expectedCells/"
 outdir="/data/bioinformatics/projects/hassan2022/output/merged/"
+refdir="/data/bioinformatics/referenceGenome/Drosophila_Melanogaster/Ensembl/dm6/"
 scrubletdir="/data/bioinformatics/projects/hassan2022/output/merged/scrublet/"
 samples="control1","CRN00224919","CRN00224920","P251L1merged","P251L2merged","CTRL2merged","TauKO1merged","LIB055588_CRN00233457","LIB055588_CRN00233458"
 projectName="hassan2022"
@@ -60,7 +61,4 @@ module load cellranger/6.0 # there is only version 3 under conda
 #done
 
 # step4: running Seurat
-#bsub -q big -e seurat_individual.log Rscript seurat_individual.R $pwd $indir $outdir $scrubletdir $samples $projectName $marker_link $marker_sheet $flag $mtPattern $rbPattern $mitoCutoff
-
-# step5: running Seurat on multiple samples
-bsub -q big -e seurat_multi.log Rscript seurat_multi.R $pwd $indir $outdir $scrubletdir $samples $projectName $marker_link $marker_sheet $flag $mtPattern $rbPattern $mitoCutoff $treatments
+bsub -q big -e seurat_individual.log Rscript seurat_individual.R $pwd $indir $outdir $scrubletdir $samples $projectName $marker_link $marker_sheet $flag $mtPattern $rbPattern $mitoCutoff

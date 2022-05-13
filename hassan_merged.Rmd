@@ -610,28 +610,30 @@ saveRDS(scrna.combined, paste0(outdir, "scrna.combined.seurat.", projectName, ".
 
 
 
-
-
-
-
 # Cell type annotation. CHANGE HERE!!!
-```{r eval = FALSE}
+```{r}
 scrna.combined.beforeAnnotation <- scrna.combined
-scrna.combined <- RenameIdents(scrna.combined, `0` = "Dopaminergic", `1` = "Lawf2", `2` = "Unknown", `3` = "Glutamatergic", `4` = "TMY14", `5` = "C2_C3", `6` = "T4_T5", `7` = "Mi1", `8` = "T1", `9` = "Gamma_lobe", `10` = "C2_C3", `11` = "Tm1_TmY8", `12` = "C2_C3", `13` = "Unknown", `14` = "L1_L2_L3_L4_L5", `15` = "Ab_lobe", `16` = "Lawf2", `17` = "OPN_adPN_and_lPN", `18` = "Unknown", `19` = "Cholinergic", `20` = "Perineurial", `21` = "Mi1", `22` = "TMY14", `23` = "Cholinergic", `24` = "L1_L2_L3_L4_L5", `25` = "TMY14", `26` = "Dm8_Tm5c", `27` = "Cholinergic", `28` = "Dopaminergic", `29` = "TMY14")
+scrna.combined <- RenameIdents(scrna.combined, `0` = "Mip_Serotonergic_Clock Neurons", `1` = "Tm20", `2` = "Photoreceptor like cells", `3` = "TmY5a/TmY14", `4` = "DM3", `5` = "PM1/Pm2", `6` = "T4/T5", `7` = "T2/T3", `8` = "Astrocyte-Like/Ensheating glia", `9` = "Gamma Kenyon cell", `10` = "Dopaminergic PAM neurons", `11` = "Mi1", `12` = "C2/C3 neurons", `13` = "Adult fat body/Glial cells", `14` = "Transmedullary neuron Tm9", `15` = "Alpha/beta Kenyon cell", `16` = "Mi15/Tmy8/T neurons", `17` = "Transmedullary Neurons", `18` = "MBON/Hemocytes", `19` = "LC12/LC17", `20` = "Mi15", `21` = "Columnar neuron T1", `22` = "Dm8", `23` = "Alpha/beta Kenyon cell", `24` = "Tm2/L neurons", `25` = "Lawf 1 and 2", `26` = "Dm8/Tm5c", `27` = "Tm1/Tm4/Tm20", `28` = "Pox neuron", `29` = "Lai/Tm1")
 ```
 
 # UMAP, cell annotated
-```{r eval = FALSE}
-p1 <- DimPlot(scrna.combined, label = TRUE, repel = TRUE, pt.size = 0.5)
+```{r}
+p1 <- DimPlot(scrna.combined, label = TRUE, repel = TRUE, pt.size = 0.5) + guides(color = guide_legend(override.aes = list(size=1), ncol=1) ) + theme(legend.title = element_text(size = 10), legend.text = element_text(size = 10))
 p1
 pdf(file=paste0(outdir, "combined.umap.annotated.pdf"))
+print(p1 + coord_fixed())
+dev.off()
+
+p1 <- DimPlot(scrna.combined, label = F, repel = TRUE, pt.size = 0.5) + guides(color = guide_legend(override.aes = list(size=1), ncol=1) ) + theme(legend.title = element_text(size = 10), legend.text = element_text(size = 10))
+p1
+pdf(file=paste0(outdir, "combined.umap.withoutAnnotation.pdf"))
 print(p1 + coord_fixed())
 dev.off()
 ```
 
 # dotplot after annotation
-```{r eval = FALSE}
-Idents(scrna.combined) <- factor(Idents(scrna.combined), levels = c("Dopaminergic", "Lawf2", "Unknown", "Glutamatergic", "TMY14", "C2_C3", "T4_T5", "Mi1", "T1", "Gamma_lobe", "C2_C3", "Tm1_TmY8", "C2_C3", "Unknown", "L1_L2_L3_L4_L5", "Ab_lobe", "Lawf2", "OPN_adPN_and_lPN", "Unknown", "Cholinergic", "Perineurial", "Mi1", "TMY14", "Cholinergic", "L1_L2_L3_L4_L5", "TMY14", "Dm8_Tm5c", "Cholinergic", "Dopaminergic", "TMY14"))
+```{r}
+Idents(scrna.combined) <- factor(Idents(scrna.combined), levels = c("Mip_Serotonergic_Clock Neurons", "Tm20", "Photoreceptor like cells", "TmY5a/TmY14", "DM3", "PM1/Pm2", "T4/T5", "T2/T3", "Astrocyte-Like/Ensheating glia", "Gamma Kenyon cell", "Dopaminergic PAM neurons", "Mi1", "C2/C3 neurons", "Adult fat body/Glial cells", "Transmedullary neuron Tm9", "Alpha/beta Kenyon cell", "Mi15/Tmy8/T neurons", "Transmedullary Neurons", "MBON/Hemocytes", "LC12/LC17", "Mi15", "Columnar neuron T1", "Dm8", "Alpha/beta Kenyon cell", "Tm2/L neurons", "Lawf 1 and 2", "Dm8/Tm5c", "Tm1/Tm4/Tm20", "Pox neuron", "Lai/Tm1"))
 
 pdf(paste0(outdir, "combined.dotplot.afterAnnotation.clustered.geneSymbol.pdf"), width = 10, height = 15)
 p1 <- Clustered_DotPlot_relabel(scrna.combined, features = markers.ID, plot_km_elbow = F, new_row_labels = geneTable$geneSymbol[match(markers.ID, geneTable$geneID)])
@@ -646,7 +648,7 @@ dev.off()
 
 
 # Step 11: Identify differentially expressed genes across treatments
-```{r eval = FALSE}
+```{r}
 theme_set(theme_cowplot())
 scrna.combined$celltype <- Idents(scrna.combined)
 scrna.combined$celltype.treatment <- paste(Idents(scrna.combined), scrna.combined$treatment, sep = "_")
