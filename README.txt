@@ -20,6 +20,6 @@ bash scRNA_seq.sh
 This will call “seurat_individual.R” and generate QC plots for each sample.
 
 Step5:
-hassan_merged.rmd in Rstudio
+Run Rscript hassan_merged_seurat.r -l expectedCells/ -s scrublet/ -k outdir/ -j hassan2022 -r refdir path_to_ref_directory
 This will generate Seurat results.
 
