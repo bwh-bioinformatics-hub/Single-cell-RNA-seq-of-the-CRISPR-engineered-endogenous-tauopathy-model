@@ -23,3 +23,4 @@ Step5:
 Run Rscript hassan_merged_seurat.r -l expectedCells/ -s scrublet/ -k outdir/ -j hassan2022 -r refdir path_to_ref_directory
 This will generate Seurat results.
 
+Step6:
