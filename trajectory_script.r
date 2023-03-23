@@ -26,7 +26,7 @@ integrated = readRDS("/scrna.combined.seurat.hassan_2022.rds")
 integrated_celltype = integrated@meta.data$seurat_clusters
 
 simple_celltype = case_when(
-  integrated_celltype %in% c("22", "26") ~ "laminar",
+  integrated_celltype %in% c("23", "26") ~ "laminar",
   integrated_celltype %in% c("1","3","4","5","9","11","13","14","16","17","18","20","25") ~ "medullary",
   integrated_celltype %in% c("6", "8", "19", "22") ~ "lobular",
   integrated_celltype %in% c("10", "15", "21") ~ "Kenyon",
