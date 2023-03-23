@@ -24,3 +24,4 @@ Run Rscript hassan_merged_seurat.r -l expectedCells/ -s scrublet/ -k outdir/ -j 
 This will generate Seurat results.
 
 Step6:
+Proceed with the trajectory and the fly phone DB analysis, using their respective code, on the integrated Seurat object. 
