@@ -1,6 +1,6 @@
 scRNA-seq data analysis
-Tingting Zhao
-05092022
+Anthony Cicalo
+09222023
 
 Step1:
 bash cellranger_mkfastq.sh
