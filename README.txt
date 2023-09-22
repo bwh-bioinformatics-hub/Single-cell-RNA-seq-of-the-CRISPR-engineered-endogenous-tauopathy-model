@@ -25,3 +25,9 @@ This will generate Seurat results.
 
 Step6:
 Proceed with the trajectory and the fly phone DB analysis, using their respective code, on the integrated Seurat object. 
+
+Step7: 
+pySCENIC
+
+Step8: 
+OmicsIntegrator
